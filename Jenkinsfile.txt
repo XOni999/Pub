@@ -1,0 +1,59 @@
+pipeline {
+  agent any
+
+  stages {
+    stage('Fetch Code') {
+      steps {
+        git branch: 'main', url: 'git@github.com:XOni999/Jenkinspvt.git', credentialsId: 'JENK-STATIC'
+      }
+    }
+
+    stage('Deploy') {
+      steps {
+        sh 'sudo apt update'
+        sh 'sudo apt install nginx'
+        sh 'sudo systemctl start nginx'
+        sh 'sudo rm -rf /var/www/html/*'
+        sh 'sudo cp -r /var/lib/jenkins/workspace/JENKINS-PIPELINE/* /var/www/html/'
+        sh 'sudo systemctl restart nginx'
+      }
+    }
+  }
+
+  post {
+    always {
+      script {
+        def commitId = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+        def commitMessage = sh(returnStdout: true, script: 'git log --format=%B -n 1').trim()
+        def committer = sh(returnStdout: true, script: 'git log --format=%an -n 1').trim()
+
+        def buildStatus = currentBuild.currentResult ?: 'UNKNOWN'
+        def messageText
+        echo "Build Status: ${buildStatus}"
+
+        if (buildStatus == "SUCCESS") {
+          messageText = "<b>Test suite</b> = TEST CASE SUCCESS\n\n"
+        } else {
+          messageText = "<b>Test suite</b> = TEST CASE FAILED\n\n"
+        }
+
+        messageText += "Commit ID: ${commitId}\n"
+        messageText += "Commit Message: ${commitMessage}\n"
+        messageText += "Committed by: ${committer}"
+
+        withCredentials([
+          string(credentialsId: 'TELEGRAM-TOKEN', variable: 'TOKEN'),
+          string(credentialsId: 'TELEGRAM-CHATID', variable: 'CHAT_ID')
+        ]) {
+          sh """
+            curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            -d "chat_id=${CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "text=${messageText}"
+          """
+        }
+      }
+      cleanWs()
+    }
+  }
+}
